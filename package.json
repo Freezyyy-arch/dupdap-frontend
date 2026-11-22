@@ -17,6 +17,7 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:a11y": "vitest run --project a11y",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
@@ -70,7 +71,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "chromatic": "^11.27.0",
     "autoprefixer": "10.5.0",
-    "chromatic": "^11.29.0",
+    "vitest-axe": "^0.1.0",
+    "@commitlint/cli": "^1
     "eslint": "8.57.1",
     "eslint-config-next": "14.2.5",
     "eslint-plugin-import": "^2.29.1",
@@ -94,7 +96,8 @@
     "@storybook/blocks": "^8.0.0",
     "@storybook/nextjs": "^8.0.0",
     "@storybook/react": "^8.0.0",
-    "storybook": "^8.0.0"
+    "storybook": "^8.0.0",
+    "vitest-axe": "^0.1.0"
   },
   "overrides": {
     "@types/minimatch": "5.1.2"
