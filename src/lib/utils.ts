@@ -155,6 +155,9 @@ export const STATUS_COLORS: Record<string, string> = {
   settling: 'bg-purple-100 text-purple-800',
   settled: 'bg-green-100 text-green-800',
   completed: 'bg-green-100 text-green-800',
+  partially_refunded: 'bg-amber-100 text-amber-800',
+  refunded: 'bg-teal-100 text-teal-800',
+  cancelled: 'bg-gray-100 text-gray-800',
   failed: 'bg-red-100 text-red-800',
   expired: 'bg-gray-100 text-gray-800',
 };
@@ -171,6 +174,9 @@ export const STATUS_ICONS: Record<string, LucideIcon> = {
   settling: RefreshCw,
   settled: CheckCircle,
   completed: CheckCircle,
+  partially_refunded: RefreshCw,
+  refunded: RefreshCw,
+  cancelled: XCircle,
   failed: XCircle,
   expired: HelpCircle,
 };

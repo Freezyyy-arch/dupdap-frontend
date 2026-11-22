@@ -2,6 +2,7 @@ import { Toaster } from 'react-hot-toast';
 import { I18nextProvider } from 'react-i18next';
 
 import CookieConsent from '@/components/CookieConsent';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { QueryProvider } from '@/components/QueryProvider';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { ThemeScript } from '@/components/ThemeScript';
@@ -34,22 +35,12 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body>
-        </MockProvider>
-          <QueryProvider>
-            <LocaleProvider>
-              <ThemeProvider>
-                {children}
-                <Toaster position="top-right" />
-                <CookieConsent />
-              </ThemeProvider>
-            </LocaleProvider>
-          </QueryProvider>
         <I18nextProvider i18n={i18nInstance}>
           <MockProvider>
             <QueryProvider>
               <LocaleProvider>
                 <ThemeProvider>
-                  {children}
+                  <ErrorBoundary>{children}</ErrorBoundary>
                   <Toaster position="top-right" />
                   <CookieConsent />
                 </ThemeProvider>
