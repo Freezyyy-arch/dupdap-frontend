@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Skeleton, SkeletonTableRows } from '@/components/Skeleton';
-import { paymentsApi } from '@/lib/api';
+import { analyticsApi, paymentsApi } from '@/lib/api';
 import { percentChange } from '@/lib/dashboard-stats';
 import type { PaymentStats } from '@/lib/types';
 import { formatUsd } from '@/lib/utils';
@@ -144,8 +144,8 @@ export default function AnalyticsPage() {
   const loadTopMerchants = useCallback((range: Period) => {
     setTopLoading(true);
     setTopError('');
-    paymentsApi
-      .topMerchants(range)
+    analyticsApi
+      .getRevenue(range)
       .then(({ data }) => {
         setTopError('');
         setTopMerchants(data);

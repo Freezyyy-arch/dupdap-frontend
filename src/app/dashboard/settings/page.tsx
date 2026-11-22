@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { FormField } from '@/components/FormField';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { merchantApi } from '@/lib/api';
+import { merchantsApi } from '@/lib/api';
 import { getErrorMessage } from '@/lib/errors';
 import toast from '@/lib/toast';
 import type { NotificationPreferences } from '@/lib/types';
@@ -182,8 +182,8 @@ export default function SettingsPage() {
   /* ── Load profile on mount ───────────────────────────────────────────── */
   useEffect(() => {
     setProfileLoading(true);
-    merchantApi
-      .profile()
+    merchantsApi
+      .getProfile()
       .then(({ data }) => {
         setProfileForm({
           businessName: data.businessName ?? '',
@@ -272,7 +272,7 @@ export default function SettingsPage() {
     setFieldErrors({});
     setSaving(true);
     try {
-      await merchantApi.update(profileForm);
+      await merchantsApi.updateProfile(profileForm);
       toast.success('Profile saved');
     } catch (err: unknown) {
       // Surface field-level validation errors if the API returns them.
@@ -303,7 +303,7 @@ export default function SettingsPage() {
     setConfirmGenerateOpen(false);
     setGenerating(true);
     try {
-      const { data } = await merchantApi.generateApiKey(selectedScopes);
+      const { data } = await merchantsApi.generateApiKey(selectedScopes);
       setGeneratedKey(data.apiKey);
       // Show the full key once, immediately after generation (#789).
       setKeyMasked(false);

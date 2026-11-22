@@ -4,7 +4,7 @@
  *
  * Covers:
  *  - Profile form rendering and initial empty state
- *  - Pre-population of form fields from merchantApi.profile()
+ *  - Pre-population of form fields from merchantsApi.getProfile()
  *  - Successful profile save flow
  *  - Field-level validation error rendering
  *  - Generic error fallback on save failure
@@ -53,9 +53,9 @@ const mockNotificationPreferences = vi.fn();
 const mockUpdateNotificationPreferences = vi.fn();
 
 vi.mock('@/lib/api', () => ({
-  merchantApi: {
-    profile: (...args: unknown[]) => mockProfile(...args),
-    update: (...args: unknown[]) => mockUpdate(...args),
+  merchantsApi: {
+    getProfile: (...args: unknown[]) => mockProfile(...args),
+    updateProfile: (...args: unknown[]) => mockUpdate(...args),
     generateApiKey: (...args: unknown[]) => mockGenerateApiKey(...args),
     notificationPreferences: (...args: unknown[]) =>
       mockNotificationPreferences(...args),
