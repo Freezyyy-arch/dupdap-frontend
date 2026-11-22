@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
+import { getErrorMessage } from '@/lib/errors';
+
 const PAGE_SIZE = 20;
 
 /** Statuses offered in the multi-select status filter (#791). */
@@ -130,7 +132,7 @@ export default function PaymentsList() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load payments');
+          setError(getErrorMessage(err) ?? 'Failed to load payments');
         }
       } finally {
         if (!cancelled) {
