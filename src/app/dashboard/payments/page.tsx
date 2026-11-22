@@ -409,7 +409,7 @@ function PaymentsPageContent() {
       });
       setPage(1);
       load(1);
-      toast.success('Payment created');
+      toast.success('Payment created — share the QR code with your customer');
     } catch (err) {
       // Keep the entered values intact so the merchant can retry without
       // re-typing everything, and surface the API's specific error message.
