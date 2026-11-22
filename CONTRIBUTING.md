@@ -96,5 +96,5 @@ Before opening a PR, confirm:
 
 - **Colors & Styling**: Use Tailwind CSS design tokens defined in `tailwind.config.ts`. Do not use arbitrary hex codes in component class names.
 - **Icons**: Use `lucide-react` icons. Pair color with descriptive text or icons to satisfy WCAG 1.4.1 (Use of Color).
-- **Images**: Use Next.js `next/image` for all images and avatars to ensure automatic optimization.
+- **Images**: Use Next.js `next/image` for all images and avatars to ensure automatic optimization. All images and icons rendered as images must use Next.js `next/image` (`<Image />`) rather than raw `<img>` tags. This is strictly enforced in CI via the `@next/next/no-img-element` ESLint rule.
 - **Accessibility**: Ensure keyboard accessibility and proper ARIA live regions for dynamic alerts or status changes.
