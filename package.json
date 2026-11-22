@@ -86,6 +86,8 @@
     "tailwindcss": "3.4.19",
     "typescript": "5.9.3",
     "vitest": "^3.0.5",
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
     "@storybook/addon-essentials": "^8.0.0",
     "@storybook/addon-interactions": "^8.0.0",
     "@storybook/addon-onboarding": "^8.0.0",
