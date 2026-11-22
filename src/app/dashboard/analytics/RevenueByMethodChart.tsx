@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import {
   PieChart,
   Pie,
@@ -21,7 +22,7 @@ const COLORS = [
   '#6b7280',
 ];
 
-export default function RevenueByMethodChart({
+function RevenueByMethodChart({
   data,
 }: {
   data: RevenueBreakdownRow[];
@@ -48,3 +49,5 @@ export default function RevenueByMethodChart({
     </ResponsiveContainer>
   );
 }
+
+export default React.memo(RevenueByMethodChart);
