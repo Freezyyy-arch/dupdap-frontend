@@ -1,6 +1,7 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 
 import { redirectToLogin } from './auth-redirect';
+import { csrfRequestInterceptor } from './csrf';
 import { getApiUrl } from './env';
 import { normalizeError, type NormalizedError } from './errors';
 import { useAuthStore } from './store';
@@ -109,6 +110,7 @@ function waitForOnline(): Promise<void> {
 }
 
 // Request interceptor omitted: auth token is sent automatically via httpOnly cookie (withCredentials: true).
+api.interceptors.request.use(csrfRequestInterceptor);
 
 api.interceptors.response.use(
   (res) => res,

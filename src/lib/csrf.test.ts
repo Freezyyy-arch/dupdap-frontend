@@ -1,28 +1,48 @@
-import { describe, expect, it } from 'vitest';
-import { getCsrfToken, isMutationMethod } from './csrf';
+import { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
+import { afterEach, describe, it, expect } from 'vitest';
 
-describe('CSRF request helpers', () => {
-  it('reads and decodes the double-submit cookie value', () => {
-    expect(getCsrfToken('session=abc; csrf_token=token%2Fvalue')).toBe(
-      'token/value'
-    );
+import {
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME,
+  csrfRequestInterceptor,
+  readCsrfToken,
+} from './csrf';
+
+function cfg(method: string): InternalAxiosRequestConfig {
+  return { method, headers: new AxiosHeaders() } as InternalAxiosRequestConfig;
+}
+
+afterEach(() => {
+  document.cookie = `${CSRF_COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+});
+
+describe('csrf', () => {
+  it('reads the token from the cookie', () => {
+    document.cookie = `${CSRF_COOKIE_NAME}=abc%20123; path=/`;
+    expect(readCsrfToken()).toBe('abc 123');
   });
 
-  it('does not confuse similarly named cookies for the CSRF cookie', () => {
-    expect(getCsrfToken('csrf_token_old=wrong')).toBeUndefined();
+  it('returns null when the cookie is absent', () => {
+    expect(readCsrfToken()).toBeNull();
   });
 
-  it.each(['post', 'patch', 'put', 'delete'])(
-    'identifies %s as a mutation',
+  it.each(['post', 'put', 'patch', 'delete', 'POST'])(
+    'adds the header on %s',
     (method) => {
-      expect(isMutationMethod(method)).toBe(true);
+      document.cookie = `${CSRF_COOKIE_NAME}=tok; path=/`;
+      const out = csrfRequestInterceptor(cfg(method));
+      expect(out.headers.get(CSRF_HEADER_NAME)).toBe('tok');
     }
   );
 
-  it.each(['get', 'head', 'options', undefined])(
-    'does not identify %s as a mutation',
-    (method) => {
-      expect(isMutationMethod(method)).toBe(false);
-    }
-  );
+  it.each(['get', 'head', 'options'])('does not add the header on %s', (method) => {
+    document.cookie = `${CSRF_COOKIE_NAME}=tok; path=/`;
+    const out = csrfRequestInterceptor(cfg(method));
+    expect(out.headers.get(CSRF_HEADER_NAME)).toBeFalsy();
+  });
+
+  it('does not add the header when no cookie exists', () => {
+    const out = csrfRequestInterceptor(cfg('post'));
+    expect(out.headers.get(CSRF_HEADER_NAME)).toBeFalsy();
+  });
 });

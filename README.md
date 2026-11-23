@@ -166,3 +166,19 @@ Notes:
   fail the 4.5:1 threshold for normal text.
 - When introducing new brand tokens, verify contrast with a WCAG contrast checker
   before use in text/background pairings.
+
+## CSRF protection
+
+The auth JWT is carried in an httpOnly cookie (`withCredentials: true`), so
+cross-site request forgery is mitigated in two layers:
+
+1. **SameSite cookies**: the backend sets the session cookie with
+   `SameSite=Lax` (or `Strict`) and `Secure`.
+2. **Double-submit cookie**: the backend also sets a readable `csrf_token`
+   cookie. `src/lib/csrf.ts` registers an axios request interceptor that copies
+   its value into the `X-CSRF-Token` header on every state-mutating request
+   (POST, PUT, PATCH, DELETE). The backend must reject requests where the
+   header and cookie do not match. GET/HEAD/OPTIONS requests are not modified.
+
+The backend change (issuing the cookie and validating the header) is required
+for enforcement; see `docs/csrf-strategy.md`.
