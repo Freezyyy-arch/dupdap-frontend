@@ -39,9 +39,20 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 
 const DEFAULT_STATUS_ICON = <Clock className="w-8 h-8 text-gray-400" />;
 
-const POLL_INTERVAL_MS = 5000;
-const POLL_MAX_ATTEMPTS = 24;
-const POLL_MAX_BACKOFF_MS = 60_000;
+/** Initial polling cadence: one status check every 3 s. */
+const POLL_INTERVAL_MS = 3000;
+/** After this many attempts the cadence backs off to `POLL_SLOW_INTERVAL_MS`. */
+const POLL_BACKOFF_AFTER_ATTEMPTS = 10;
+/** Cadence once the first backoff tier is reached. */
+const POLL_SLOW_INTERVAL_MS = 10_000;
+/** Cadence once the second backoff tier is reached. */
+const POLL_SLOWEST_INTERVAL_MS = 30_000;
+/** Attempt count at which the cadence drops to `POLL_SLOWEST_INTERVAL_MS`. */
+const POLL_SLOWEST_AFTER_ATTEMPTS = 20;
+/** Hard stop: polling gives up after 15 minutes and shows the timeout state. */
+const POLL_TIMEOUT_MS = 15 * 60_000;
+/** After this long without a terminal status we warn the customer (#770). */
+const SLOW_PAYMENT_WARNING_MS = 5 * 60_000;
 
 /**
  * Number of consecutive poll failures before we show the network degradation
@@ -91,6 +102,16 @@ const URGENCY_STYLES: Record<ExpiryUrgency, string> = {
 
 // ─── QR code subtree (memoized for countdown isolation #310) ───────────────
 
+const STELLAR_URI_PREFIX = 'web+stellar:pay?';
+
+/**
+ * A malformed `stellarUri` makes `qrcode.react` throw while rendering, so the
+ * value is validated before it ever reaches the QR renderer (#771).
+ */
+export function isValidStellarUri(uri: string | null | undefined): boolean {
+  return typeof uri === 'string' && uri.startsWith(STELLAR_URI_PREFIX);
+}
+
 interface QrSubtreeProps {
   stellarUri: string;
   amountLabel: string;
@@ -107,6 +128,24 @@ function QrSubtree({
   amountXlm,
 }: QrSubtreeProps) {
   const qrRef = useRef<HTMLDivElement>(null);
+
+  if (!isValidStellarUri(stellarUri)) {
+    return (
+      <div className="flex justify-center mb-4">
+        <div
+          data-testid="stellar-uri-invalid"
+          role="alert"
+          className="bg-red-50 border border-red-200 rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-2 w-44 h-44"
+        >
+          <AlertTriangle className="w-8 h-8 text-red-500" aria-hidden="true" />
+          <p className="text-xs text-red-700">
+            This payment link is invalid. Please contact the merchant for a new
+            payment request.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const handleDownload = () => {
     // Serialize the SVG element rendered by QRCodeSVG into a standalone SVG
@@ -370,8 +409,45 @@ function ExpiredState({ payment }: ExpiredStateProps) {
         href="/dashboard/payments/new"
         className="inline-block px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors"
       >
-        create new payment
+        Start a new payment
       </a>
+    </div>
+  );
+}
+
+// ─── Slow payment / timeout state (#770) ─────────────────────────────────────
+
+interface SlowPaymentStateProps {
+  payment: Payment;
+}
+
+function SlowPaymentState({ payment }: SlowPaymentStateProps) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="payment-slow"
+      className="text-center py-6"
+    >
+      <Clock className="w-12 h-12 text-amber-500 mx-auto mb-4" />
+      <h2 className="text-lg font-bold text-gray-900 mb-2">
+        Payment is taking longer than expected
+      </h2>
+      <p className="text-sm text-gray-500 mb-4">
+        We&apos;re still checking the status of this payment. Your funds have
+        not been lost — you can keep this page open or start a new payment.
+      </p>
+      <a
+        href="/dashboard/payments/new"
+        className="inline-block px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors"
+      >
+        Start a new payment
+      </a>
+      {payment.reference && (
+        <p className="mt-3 text-xs text-gray-400">
+          Reference: {payment.reference}
+        </p>
+      )}
     </div>
   );
 }
@@ -593,6 +669,10 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
   const [pollWarning, setPollWarning] = useState<string>('');
   /** True when consecutive poll failures have crossed the degradation threshold. */
   const [networkDegraded, setNetworkDegraded] = useState(false);
+  /** True once polling has been running for `POLL_TIMEOUT_MS` without a terminal status. */
+  const [pollTimedOut, setPollTimedOut] = useState(false);
+  /** True once polling has run for `SLOW_PAYMENT_WARNING_MS` without a terminal status. */
+  const [slowPayment, setSlowPayment] = useState(false);
   /** Payment snapshot captured at creation, used to detect XLM rate drift. */
   const [createdPayment, setCreatedPayment] = useState<Payment | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -603,6 +683,25 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
     let consecutiveFailures = 0;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    let stopped = false;
+    const startedAt = Date.now();
+
+    const stopPolling = () => {
+      stopped = true;
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+    };
+
+    const handleTimeout = () => {
+      stopPolling();
+      setPollTimedOut(true);
+      setSlowPayment(true);
+      setPollWarning(
+        'We stopped checking automatically after 15 minutes. Refresh the page to check again.'
+      );
+    };
 
     paymentsApi
       .getByReference(params.paymentId)
@@ -620,21 +719,33 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
       .finally(() => setLoading(false));
 
     const scheduleNext = () => {
-      if (cancelled) return;
-      const backoff = Math.min(
-        POLL_INTERVAL_MS * 2 ** consecutiveFailures,
-        POLL_MAX_BACKOFF_MS
-      );
-      timeout = setTimeout(poll, backoff);
+      if (cancelled || stopped) return;
+      if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
+        handleTimeout();
+        return;
+      }
+      if (Date.now() - startedAt >= SLOW_PAYMENT_WARNING_MS) {
+        setSlowPayment(true);
+      }
+      const interval =
+        pollAttempts >= POLL_SLOWEST_AFTER_ATTEMPTS
+          ? POLL_SLOWEST_INTERVAL_MS
+          : pollAttempts >= POLL_BACKOFF_AFTER_ATTEMPTS
+            ? POLL_SLOW_INTERVAL_MS
+            : POLL_INTERVAL_MS;
+      timeout = setTimeout(poll, interval);
     };
 
     const poll = () => {
-      if (cancelled) return;
-      pollAttempts += 1;
-      if (pollAttempts >= POLL_MAX_ATTEMPTS) {
-        setPollWarning('Status checks are taking longer than expected.');
+      if (cancelled || stopped) return;
+      if (Date.now() - startedAt >= POLL_TIMEOUT_MS) {
+        handleTimeout();
         return;
       }
+      if (Date.now() - startedAt >= SLOW_PAYMENT_WARNING_MS) {
+        setSlowPayment(true);
+      }
+      pollAttempts += 1;
       paymentsApi
         .getByReference(paymentId)
         .then(({ data }) => {
@@ -643,7 +754,10 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
           // Recovery: clear the degradation banner once the network is back.
           setNetworkDegraded(false);
           setPayment(data);
-          if (['settled', 'failed', 'expired'].includes(data.status)) return;
+          if (['settled', 'failed', 'expired'].includes(data.status)) {
+            stopPolling();
+            return;
+          }
           scheduleNext();
         })
         .catch(() => {
@@ -661,7 +775,7 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
     // Expose an immediate poll trigger so visibilitychange can refresh
     // without waiting for the next scheduled interval tick.
     pollNowRef.current = () => {
-      if (cancelled) return;
+      if (cancelled || stopped) return;
       if (timeout) {
         clearTimeout(timeout);
         timeout = null;
@@ -673,6 +787,7 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
 
     return () => {
       cancelled = true;
+      stopped = true;
       pollNowRef.current = null;
       if (timeout) clearTimeout(timeout);
     };
@@ -696,6 +811,9 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
   // the QR code — the backend may have extended the window server-side.
   const isExplicitlyExpired =
     isPending && explicitExpiresAt ? explicitExpiresAt.getTime() <= now : false;
+  // The backend is the source of truth for expiry (#770).
+  const isBackendExpired = payment?.status === 'expired';
+  const isExpired = isBackendExpired || isExplicitlyExpired;
 
   useEffect(() => {
     if (!isPending || !expiresAt) return;
@@ -764,13 +882,14 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
     hasCryptoAmount && payment
       ? `web+stellar:pay?destination=${encodeURIComponent(payment.stellarDepositAddress ?? '')}&amount=${encodeURIComponent(String(payment.amountXlm))}&memo=${encodeURIComponent(payment.stellarMemo)}&memo_type=text`
       : null;
+  const hasValidStellarUri = isValidStellarUri(stellarUri);
 
   // Memoize the QR subtree so the 1-second countdown tick (which updates `now`
   // and re-renders the page) does NOT re-create the QR code DOM node (#310).
   // The dependency array intentionally excludes `now` — the QR code value and
   // reference don't change on a tick, so the subtree identity stays stable.
   const memoizedQrSubtree = useMemo(() => {
-    if (!stellarUri || !payment) return null;
+    if (!isValidStellarUri(stellarUri) || !payment) return null;
     return (
       <QrSubtree
         stellarUri={stellarUri}
@@ -865,6 +984,8 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
               <SuccessAnimation show={isSettled} />
               <Receipt payment={payment} />
             </>
+          ) : isExpired ? (
+            <ExpiredState payment={payment} />
           ) : isPending ? (
             <>
               {expiresAt && (
@@ -876,10 +997,29 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
 
               {isExplicitlyExpired ? (
                 <ExpiredState payment={payment} />
+              ) : slowPayment ? (
+                <SlowPaymentState payment={payment} />
               ) : (
                 <>
-                  {stellarUri ? (
+                  {hasValidStellarUri ? (
                     memoizedQrSubtree
+                  ) : hasCryptoAmount ? (
+                    <div className="flex justify-center mb-4">
+                      <div
+                        data-testid="stellar-uri-invalid"
+                        role="alert"
+                        className="bg-red-50 border border-red-200 rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-2 w-44 h-44"
+                      >
+                        <AlertTriangle
+                          className="w-8 h-8 text-red-500"
+                          aria-hidden="true"
+                        />
+                        <p className="text-xs text-red-700">
+                          This payment link is invalid. Please contact the
+                          merchant for a new payment request.
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex justify-center mb-4">
                       <div
@@ -978,6 +1118,22 @@ function PayPageContent({ paymentId }: { paymentId: string }) {
               {pollWarning && (
                 <p className="mt-2 text-xs text-amber-600">{pollWarning}</p>
               )}
+              {pollTimedOut && (
+                <p
+                  role="status"
+                  data-testid="poll-timeout"
+                  className="mt-2 text-xs text-gray-500"
+                >
+                  Automatic status checks have stopped. Refresh the page to
+                  check again.
+                </p>
+              )}
+              <a
+                href="/dashboard/payments/new"
+                className="inline-block mt-4 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-medium hover:bg-brand-600 transition-colors"
+              >
+                Start a new payment
+              </a>
             </div>
           )}
         </div>
