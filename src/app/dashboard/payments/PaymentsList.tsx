@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { getErrorMessage } from '@/lib/errors';
+import { SkeletonList } from '@/components/Skeleton';
 import { paymentsApi } from '@/lib/api';
 import type { PaymentStats } from '@/lib/types';
 
@@ -458,7 +459,13 @@ export default function PaymentsList() {
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-gray-500">Loading payments…</p>
+        <ul
+          className="divide-y divide-gray-200"
+          aria-busy="true"
+          data-testid="payments-skeleton"
+        >
+          <SkeletonList rows={PAGE_SIZE} />
+        </ul>
       ) : payments.length === 0 ? (
         hasFilters ? (
           <p className="text-sm text-gray-500">
