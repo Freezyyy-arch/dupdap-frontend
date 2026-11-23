@@ -20,7 +20,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { paymentsApi } from '@/lib/api';
 import { isRateStale } from '@/lib/stale-rate';
 import type { Payment } from '@/lib/types';
-import { formatUsd, formatDate } from '@/lib/utils';
+import {
+  formatUsdWithCode,
+  formatXlmEquivalent,
+  formatDate,
+} from '@/lib/utils';
+
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   pending: <Clock className="w-8 h-8 text-yellow-500" />,
@@ -413,7 +419,10 @@ function Receipt({ payment }: ReceiptProps) {
       'DupDub Payment Receipt',
       '======================',
       `Reference:   ${payment.reference}`,
-      `Amount:      ${formatUsd(payment.amountUsd)}`,
+      `Amount:      ${formatUsdWithCode(payment.amountUsd)}`,
+      payment.amountXlm != null && payment.amountXlm > 0
+        ? `XLM:         ${formatXlmEquivalent(payment.amountXlm)}`
+        : '',
       `Status:      ${payment.status}`,
       payment.description ? `Description: ${payment.description}` : '',
       payment.customerEmail ? `Customer:    ${payment.customerEmail}` : '',
@@ -451,7 +460,12 @@ function Receipt({ payment }: ReceiptProps) {
         <div className="flex justify-between px-4 py-3 bg-white">
           <dt className="text-gray-500">Amount</dt>
           <dd className="font-semibold text-gray-900">
-            {formatUsd(payment.amountUsd)}
+            {formatUsdWithCode(payment.amountUsd)}
+            {payment.amountXlm != null && payment.amountXlm > 0 && (
+              <span className="block text-xs font-normal text-gray-500">
+                {formatXlmEquivalent(payment.amountXlm)}
+              </span>
+            )}
           </dd>
         </div>
         <div className="flex justify-between px-4 py-3 bg-gray-50">
@@ -536,11 +550,46 @@ function Receipt({ payment }: ReceiptProps) {
 // ─── Main page ─────────────────────────────────────────────────────────────
 
 export default function PayPage({ params }: { params: { paymentId: string } }) {
+  return (
+    <ErrorBoundary
+      context={{ paymentId: params.paymentId }}
+      fallback={(reset) => <PayPageErrorFallback onRetry={reset} />}
+    >
+      <PayPageContent paymentId={params.paymentId} />
+    </ErrorBoundary>
+  );
+}
+
+function PayPageErrorFallback({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="card w-full max-w-[92vw] xs:max-w-sm p-6 text-center">
+        <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
+        <h1 className="text-xl font-bold mt-3">Something went wrong</h1>
+        <p className="text-sm text-gray-600 mt-2">
+          We couldn&apos;t display this payment. Your funds are safe — please try
+          again.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-5 inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PayPageContent({ paymentId }: { paymentId: string }) {
   const [payment, setPayment] = useState<Payment | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [copied, setCopied] = useState<string | null>(null);
+  /** Screen-reader announcement for the most recent copy attempt. */
+  const [copyAnnouncement, setCopyAnnouncement] = useState<string>('');
   const [pollWarning, setPollWarning] = useState<string>('');
   /** True when consecutive poll failures have crossed the degradation threshold. */
   const [networkDegraded, setNetworkDegraded] = useState(false);
@@ -587,7 +636,7 @@ export default function PayPage({ params }: { params: { paymentId: string } }) {
         return;
       }
       paymentsApi
-        .getByReference(params.paymentId)
+        .getByReference(paymentId)
         .then(({ data }) => {
           consecutiveFailures = 0;
           setPollWarning('');
@@ -627,7 +676,7 @@ export default function PayPage({ params }: { params: { paymentId: string } }) {
       pollNowRef.current = null;
       if (timeout) clearTimeout(timeout);
     };
-  }, [params.paymentId]);
+  }, [paymentId]);
 
   const explicitExpiresAt = payment?.expiresAt
     ? new Date(payment.expiresAt)
@@ -669,12 +718,26 @@ export default function PayPage({ params }: { params: { paymentId: string } }) {
   }, []);
 
   const copy = async (text: string, key: string) => {
+    const label = key === 'address' ? 'Deposit address' : 'Memo';
+    if (!text) {
+      setCopyAnnouncement(`${label} is unavailable to copy.`);
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      setCopyAnnouncement(
+        `Copying is not supported in this browser. Please select the ${label.toLowerCase()} and copy it manually.`
+      );
+      return;
+    }
     try {
       await navigator.clipboard.writeText(text);
       setCopied(key);
+      setCopyAnnouncement(`${label} copied to clipboard.`);
       setTimeout(() => setCopied((c) => (c === key ? null : c)), 2000);
     } catch {
-      /* clipboard unavailable */
+      setCopyAnnouncement(
+        `Could not copy the ${label.toLowerCase()}. Please select it and copy manually.`
+      );
     }
   };
 
@@ -711,7 +774,7 @@ export default function PayPage({ params }: { params: { paymentId: string } }) {
     return (
       <QrSubtree
         stellarUri={stellarUri}
-        amountLabel={formatUsd(payment.amountUsd)}
+        amountLabel={formatUsdWithCode(payment.amountUsd)}
         reference={payment.reference}
         depositAddress={payment.stellarDepositAddress ?? ''}
         amountXlm={payment.amountXlm ?? 0}
@@ -763,8 +826,16 @@ export default function PayPage({ params }: { params: { paymentId: string } }) {
           <p className="text-sm text-gray-500 font-medium">DupDub</p>
           {!isSettled && (
             <h1 className="text-3xl font-bold mt-1">
-              {formatUsd(payment.amountUsd)}
+              {formatUsdWithCode(payment.amountUsd)}
             </h1>
+          )}
+          {!isSettled && hasCryptoAmount && payment.amountXlm != null && (
+            <p
+              data-testid="xlm-equivalent"
+              className="text-sm text-gray-600 mt-1"
+            >
+              {formatXlmEquivalent(payment.amountXlm)}
+            </p>
           )}
           {payment.description && (
             <p className="text-sm text-gray-500 mt-1 break-words">
@@ -864,6 +935,9 @@ export default function PayPage({ params }: { params: { paymentId: string } }) {
                     {copied === 'address' && (
                       <p className="text-xs text-green-600 mt-1">Copied!</p>
                     )}
+                    <span className="sr-only" role="status" aria-live="polite">
+                      {copyAnnouncement}
+                    </span>
                   </div>
 
                   {payment.stellarMemo && (
